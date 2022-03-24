@@ -3,8 +3,8 @@ title: "midterm"
 author: "Yucong Gao"
 date: "3/23/2022"
 output:
-  pdf_document: default
-  html_document: default
+  github_document: default
+ 
 ---
 
 ```{r setup, include=FALSE}
@@ -198,24 +198,24 @@ ctrl = trainControl(method = "repeatedcv",
 
 ```{r}
 set.seed(1)
-logit_fit = train(x_tr, y_tr, 
+logit_fit = train(x[rowtr,], y[rowtr], 
                   method = "glm", 
                   metric = "ROC", 
                   trControl = ctrl)
 
 summary(logit_fit)
 
-logit_pred_prob = predict(logit_fit, newdata = x_te, type = "prob")[,2]
+logit_pred_prob = predict(logit_fit, newdata = x[-rowtr,], type = "prob")[,2]
 logit_pred = rep("dead", length(logit_pred_prob))
 logit_pred[logit_pred_prob<0.5] = "alive"
 
 #confusion matrix
 confusionMatrix(data = as.factor(logit_pred),
-                reference = y_te, 
+                reference = y[-rowtr], 
                 positive = "dead")
 
 #ROC curve
-logit_roc = roc(y_te, logit_pred_prob)
+logit_roc = roc(y[-rowtr], logit_pred_prob)
 plot(logit_roc, legacy.axes = T, print.auc = T)
 plot(smooth(logit_roc), col = 4 , add = T)
 
