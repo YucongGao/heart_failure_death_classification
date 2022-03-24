@@ -1,0 +1,381 @@
+---
+title: "midterm"
+author: "Yucong Gao"
+date: "3/23/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+read data
+```{r}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(klaR)
+library(patchwork)
+```
+
+```{r}
+heart = read.csv("./heart_failure_clinical_records_dataset.csv") %>% janitor::clean_names()
+
+heart$anaemia = as.factor(heart$anaemia)
+heart$diabetes = as.factor(heart$diabetes)
+heart$high_blood_pressure = as.factor(heart$high_blood_pressure)
+heart$sex = as.factor(heart$sex)
+heart$smoking = as.factor(heart$smoking)
+heart$death_event = as.factor(heart$death_event)
+
+col_cont = c("age", "creatinine_phosphokinase", "ejection_fraction", "platelets", "serum_creatinine", "serum_sodium", "time", "death_event")
+col_di = c("anaemia", "diabetes", "high_blood_pressure", "sex", "smoking", "death_event")
+continuous = heart[, col_cont]
+  
+
+dichotomous = heart[, col_di]
+dichotomous$death_event = factor(ifelse(dichotomous$death_event == 1, "dead", "alive"))
+```
+
+
+## EDA
+```{r}
+theme1 <- transparentTheme(trans = .4)
+trellis.par.set(theme1)
+
+# univariable EDA
+featurePlot(x = continuous[, 1:7], 
+            y = continuous$death_event,
+            scales = list(x = list(relation = "free"), 
+                          y = list(relation = "free")),
+            plot = "density", pch = "|", 
+            auto.key = list(columns = 2))
+
+
+janitor::tabyl(dichotomous, anaemia, death_event) %>% knitr::kable()
+janitor::tabyl(dichotomous, diabetes, death_event) %>% knitr::kable()
+janitor::tabyl(dichotomous, high_blood_pressure, death_event) %>% knitr::kable()
+janitor::tabyl(dichotomous, sex, death_event) %>% knitr::kable()
+janitor::tabyl(dichotomous, smoking, death_event) %>% knitr::kable()
+
+
+heart_tb = as.tibble(heart)
+
+#anaemia
+anaemia = 
+  heart_tb %>% 
+  group_by(death_event, anaemia) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = anaemia, y = count, fill = death_event)) + 
+  geom_bar(stat = "identity", position = 'dodge', alpha = .7) + 
+  scale_x_discrete(labels = c("no anaemia", "have anaemia"))
+
+anaemia_df = 
+  heart_tb %>% 
+  group_by(death_event, anaemia) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(values_from = count, 
+              names_from = anaemia)
+
+anamenia_odds = (anaemia_df[1,2] * anaemia_df[2,3]) / (anaemia_df[1,3]*anaemia_df[2,2])
+
+# diabetes
+diabetes = 
+  heart_tb %>% 
+  group_by(death_event, diabetes) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = diabetes, y = count, fill = death_event)) + 
+  geom_bar(stat = "identity", position = 'dodge', alpha = .7) + 
+  scale_x_discrete(labels = c("no diabetes", "have diabetes"))
+
+diabetes_df = 
+  heart_tb %>% 
+  group_by(death_event, diabetes) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(values_from = count, 
+              names_from = diabetes)
+
+diabetes_odds = (diabetes_df[1,2] * diabetes_df[2,3]) / (diabetes_df[1,3]*diabetes_df[2,2])
+
+
+#high blood pressure
+high_bp = 
+  heart_tb %>% 
+  group_by(death_event, high_blood_pressure) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = high_blood_pressure, y = count, fill = death_event)) + 
+  geom_bar(stat = "identity", position = 'dodge', alpha = .7) + 
+  scale_x_discrete(labels = c("no high bp", "have high bp"))
+
+high_blood_pressure_df = 
+  heart_tb %>% 
+  group_by(death_event, high_blood_pressure) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(values_from = count, 
+              names_from = high_blood_pressure)
+
+high_bp_odds = (high_blood_pressure_df[1,2] * high_blood_pressure_df[2,3]) / (high_blood_pressure_df[1,3]*high_blood_pressure_df[2,2])
+
+
+sex = 
+  heart_tb %>% 
+  group_by(death_event, sex) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = sex, y = count, fill = death_event)) + 
+  geom_bar(stat = "identity", position = 'dodge', alpha = .7) + 
+  scale_x_discrete(labels = c("female", "male"))
+
+sex_df = 
+  heart_tb %>% 
+  group_by(death_event, sex) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(values_from = count, 
+              names_from = sex)
+
+sex_odds = (sex_df[1,2] * sex_df[2,3]) / (sex_df[1,3]*sex_df[2,2])
+
+smoking = 
+  heart_tb %>% 
+  group_by(death_event, smoking) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = smoking, y = count, fill = death_event)) + 
+  geom_bar(stat = "identity", position = 'dodge', alpha = .7) + 
+  scale_x_discrete(labels = c("no smoking", "smoking"))
+
+smoking_df = 
+  heart_tb %>% 
+  group_by(death_event, smoking) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(values_from = count, 
+              names_from = smoking)
+
+smoking_odds = (smoking_df[1,2] * smoking_df[2,3]) / (smoking_df[1,3]*smoking_df[2,2])
+
+
+(anaemia + diabetes + high_bp) / (sex + smoking)
+
+attributes = c("anaemia", "diabetes", "high blood pressure", "sex", "smoking")
+odds = c(as.numeric(anamenia_odds), 
+         as.numeric(diabetes_odds), 
+         as.numeric(high_bp_odds), 
+         as.numeric(sex_odds), 
+         as.numeric(smoking_odds))
+
+tibble(variable = attributes,odds =  odds) %>% knitr::kable()
+```
+
+## Modeling
+
+### Prepare the data
+```{r}
+heart$creatinine_phosphokinase = as.numeric(heart$creatinine_phosphokinase)
+heart$ejection_fraction = as.numeric(heart$ejection_fraction)
+heart$serum_sodium = as.numeric(heart$serum_sodium)
+heart$time = as.numeric(heart$time)
+heart$death_event = factor(ifelse(heart$death_event == 1, "dead", "alive"))
+
+set.seed(1)
+rowtr = createDataPartition(heart$death_event, 
+                            p = .75, 
+                            list = F)
+
+x = model.matrix(death_event~., heart)[,-1]
+y = heart$death_event
+
+
+ctrl = trainControl(method = "repeatedcv", 
+                    summaryFunction = twoClassSummary, 
+                    classProbs = T)
+```
+
+### Logistic Regression
+
+```{r}
+set.seed(1)
+logit_fit = train(x_tr, y_tr, 
+                  method = "glm", 
+                  metric = "ROC", 
+                  trControl = ctrl)
+
+summary(logit_fit)
+
+logit_pred_prob = predict(logit_fit, newdata = x_te, type = "prob")[,2]
+logit_pred = rep("dead", length(logit_pred_prob))
+logit_pred[logit_pred_prob<0.5] = "alive"
+
+#confusion matrix
+confusionMatrix(data = as.factor(logit_pred),
+                reference = y_te, 
+                positive = "dead")
+
+#ROC curve
+logit_roc = roc(y_te, logit_pred_prob)
+plot(logit_roc, legacy.axes = T, print.auc = T)
+plot(smooth(logit_roc), col = 4 , add = T)
+
+# variable importance
+vip(logit_fit)
+```
+
+### Penalized Logistic Regression
+
+```{r}
+glmnGrid = expand.grid(.alpha = seq(0, 1, length = 21), 
+                       .lambda = exp(seq(-6, 2, length = 50)))
+
+
+set.seed(1)
+glmnet_fit = train(x[rowtr, ], y[rowtr],
+                method = "glmnet", 
+                tuneGrid = glmnGrid, 
+                trControl = ctrl)
+
+glmnet_fit$bestTune
+
+# plot tuning parameters
+myCol<- rainbow(25)
+myPar <- list(superpose.symbol = list(col = myCol),
+              superpose.line = list(col = myCol))
+
+plot(glmnet_fit, par.settings = myPar, xTrans = function(x) log(x))
+
+# roc curve
+glmnet_pred_prob = predict(glmnet_fit, x[-rowtr, ], type = "prob")[,2]
+
+glmnet_roc = roc(y[-rowtr], glmnet_pred_prob)
+plot(glmnet_roc, legacy.axes = T, print.auc = T)
+plot(smooth(glmnet_roc), col = 4 , add = T)
+```
+
+
+### GAM
+
+```{r}
+set.seed(1)
+gam_fit = train(x[rowtr,],
+                y[rowtr],
+                   method = "gam",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+
+gam_fit$finalModel
+
+gam_pred_prob = predict(gam_fit, x[-rowtr,], type = "prob")[,2]
+
+# roc curve
+gam_roc = roc(y[-rowtr], gam_pred_prob)
+plot(gam_roc, legacy.axes = T, print.auc = T)
+plot(smooth(gam_roc), col = 4 , add = T)
+
+#confusion matrix
+gam_pred = rep("dead", length(gam_pred_prob))
+gam_pred[gam_pred_prob<0.5] = "alive"
+confusionMatrix(data = as.factor(gam_pred),
+                reference = y[-rowtr], 
+                positive = "dead")
+
+```
+
+
+### MARS
+
+```{r}
+set.seed(1)
+mars_fit = train(x[rowtr,], 
+                 y[rowtr],
+                 method = "earth", 
+                 tuneGrid = expand.grid(degree = 1:3, 
+                                        nprune = 2:30), 
+                 trControl = ctrl)
+
+plot(mars_fit)
+mars_fit$bestTune
+
+summary(mars_fit)
+
+# confusion matrix
+mars_pred_prob = predict(mars_fit, newdata = x[-rowtr, ], type = "prob")[,2]
+mars_pred = rep("dead", length(mars_pred_prob))
+mars_pred[mars_pred_prob<0.5] = "alive"
+confusionMatrix(data = as.factor(mars_pred), 
+                reference = y[-rowtr], 
+                positive = "dead")
+
+# roc curve
+mars_roc = roc(y[-rowtr], mars_pred_prob)
+plot(mars_roc, legacy.axes = T, print.auc = T)
+plot(smooth(mars_roc), col = 4 , add = T)
+
+# variable importance
+vip(mars_fit$finalModel)
+```
+
+
+### LDA
+```{r}
+set.seed(1)
+
+lda_fit = train(x[rowtr, ], y[rowtr], 
+                method = "lda", 
+                metric = "ROC", 
+                trControl = ctrl)
+
+
+# confusion matrix
+lda_pred_prob = predict(lda_fit, newdata = x[-rowtr, ], type = "prob")[,2]
+lda_pred = rep("dead", length(lda_pred_prob))
+lda_pred[lda_pred_prob<0.5] = "alive"
+confusionMatrix(data = as.factor(lda_pred), 
+                reference = y[-rowtr], 
+                positive = "dead")
+
+
+# roc curve
+lda_roc = roc(y[-rowtr], lda_pred_prob)
+plot(lda_roc, legacy.axes = T, print.auc = T)
+plot(smooth(lda_roc), col = 4 , add = T)
+
+
+# plot discriminant variable
+set.seed(1)
+lda_fit2 = lda(death_event~., data = heart, 
+               subset = rowtr)
+plot(lda_fit2)
+```
+
+### Naive Bayes
+```{r}
+nbgrid = expand.grid(usekernel = c(F, T),
+                     fL = 1,
+                     adjust = seq(.2, 3,by = .2))
+
+set.seed(1)
+nb_fit = train(x[rowtr, ], y[rowtr], 
+               method = "nb", 
+               tuneGrid = nbgrid,
+               metric = "ROC", 
+               trControl = ctrl)
+
+plot(nb_fit)
+
+
+
+```
+
+
+
+### Model Comparison
+```{r}
+res = resamples(list(glm = logit_fit, glmnet = glmnet_fit, gam = gam_fit, mars = mars_fit, lda = lda_fit, naive_bayes = nb_fit))
+summary(res)
+bwplot(res, metric = "ROC")
+```
+
+
