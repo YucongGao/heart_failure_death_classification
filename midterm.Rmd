@@ -1,9 +1,9 @@
 ---
-title: "midterm"
+title: "Prediction_of_Survivorship_of_Heart_Failure_Patients"
 author: "Yucong Gao"
 date: "3/23/2022"
 output:
-  pdf_document: default
+  github_document: default
  
 ---
 
