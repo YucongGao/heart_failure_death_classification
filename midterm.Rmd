@@ -3,7 +3,7 @@ title: "midterm"
 author: "Yucong Gao"
 date: "3/23/2022"
 output:
-  github_document: default
+  pdf_document: default
  
 ---
 
@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 read data
-```{r}
+```{r, message=FALSE}
 library(tidyverse)
 library(caret)
 library(glmnet)
@@ -24,7 +24,7 @@ library(klaR)
 library(patchwork)
 ```
 
-```{r}
+```{r, warning=FALSE}
 heart = read.csv("./heart_failure_clinical_records_dataset.csv") %>% janitor::clean_names()
 
 heart$anaemia = as.factor(heart$anaemia)
@@ -45,7 +45,7 @@ dichotomous$death_event = factor(ifelse(dichotomous$death_event == 1, "dead", "a
 
 
 ## EDA
-```{r}
+```{r, warning=FALSE}
 theme1 <- transparentTheme(trans = .4)
 trellis.par.set(theme1)
 
@@ -168,16 +168,48 @@ odds = c(as.numeric(anamenia_odds),
          as.numeric(smoking_odds))
 
 tibble(variable = attributes,odds =  odds) %>% knitr::kable()
+
+
+cp_time = heart_tb %>% 
+  ggplot(aes(x = time, y = creatinine_phosphokinase, color = death_event)) + 
+  geom_point()
+
+
+ef_time = heart_tb %>% 
+  ggplot(aes(x = time, y = ejection_fraction, color = death_event)) + 
+  geom_point()
+
+pltlt_time = heart_tb %>% 
+  ggplot(aes(x = time, y = platelets, color = death_event)) + 
+  geom_point()
+
+
+sc_time = heart_tb %>% 
+  ggplot(aes(x = time, y = serum_creatinine, color = death_event)) + 
+  geom_point()
+
+
+ss_time = heart_tb %>% 
+  ggplot(aes(x = time, y = serum_sodium, color = death_event)) + 
+  geom_point()
+
+(cp_time + ef_time) / (pltlt_time +sc_time )
+
+ss_time 
+
+
+
+
 ```
 
 ## Modeling
 
 ### Prepare the data
-```{r}
+```{r,warning=FALSE}
+heart = heart[,-12]
 heart$creatinine_phosphokinase = as.numeric(heart$creatinine_phosphokinase)
 heart$ejection_fraction = as.numeric(heart$ejection_fraction)
 heart$serum_sodium = as.numeric(heart$serum_sodium)
-heart$time = as.numeric(heart$time)
 heart$death_event = factor(ifelse(heart$death_event == 1, "dead", "alive"))
 
 set.seed(1)
@@ -196,7 +228,7 @@ ctrl = trainControl(method = "repeatedcv",
 
 ### Logistic Regression
 
-```{r}
+```{r,warning=FALSE}
 set.seed(1)
 logit_fit = train(x[rowtr,], y[rowtr], 
                   method = "glm", 
@@ -221,13 +253,14 @@ plot(smooth(logit_roc), col = 4 , add = T)
 
 # variable importance
 vip(logit_fit)
+
 ```
 
 ### Penalized Logistic Regression
 
-```{r}
+```{r,warning=FALSE}
 glmnGrid = expand.grid(.alpha = seq(0, 1, length = 21), 
-                       .lambda = exp(seq(-6, 2, length = 50)))
+                       .lambda = exp(seq(-6, 5, length = 80)))
 
 
 set.seed(1)
@@ -251,12 +284,24 @@ glmnet_pred_prob = predict(glmnet_fit, x[-rowtr, ], type = "prob")[,2]
 glmnet_roc = roc(y[-rowtr], glmnet_pred_prob)
 plot(glmnet_roc, legacy.axes = T, print.auc = T)
 plot(smooth(glmnet_roc), col = 4 , add = T)
+
+vip(glmnet_fit)
+
+coef(glmnet_fit$finalModel, glmnet_fit$bestTune$lambda)
+
+# confusion matrix
+glmnet_pred = rep("dead", length(glmnet_pred_prob))
+glmnet_pred[glmnet_pred_prob<0.5] = "alive"
+confusionMatrix(data = as.factor(glmnet_pred),
+                reference = y[-rowtr], 
+                positive = "dead")
+
 ```
 
 
 ### GAM
 
-```{r}
+```{r, warning=FALSE}
 set.seed(1)
 gam_fit = train(x[rowtr,],
                 y[rowtr],
@@ -281,12 +326,18 @@ confusionMatrix(data = as.factor(gam_pred),
                 reference = y[-rowtr], 
                 positive = "dead")
 
+
+
+vip(gam_fit)
+
+
+
 ```
 
 
 ### MARS
 
-```{r}
+```{r, warning=FALSE}
 set.seed(1)
 mars_fit = train(x[rowtr,], 
                  y[rowtr],
@@ -315,11 +366,29 @@ plot(smooth(mars_roc), col = 4 , add = T)
 
 # variable importance
 vip(mars_fit$finalModel)
+
+mars_fit$finalModel
+
+```
+
+
+pdp plot
+```{r}
+pdp::partial(mars_fit, pred.var = c("ejection_fraction"), grid.resolution = 100) %>% autoplot()
+
+pdp::partial(mars_fit, 
+             pred.var = c("ejection_fraction", "serum_creatinine", "age"), 
+             grid.resolution = 10) %>% 
+  pdp::plotPartial(levelplot = F, zlab = "yhat", drape = T, screen = list(z = 20, x = -60))
+
+pdp::partial(mars_fit, pred.var = c("age"), grid.resolution = 10) %>% autoplot()
+
+pdp::partial(mars_fit, pred.var = c("serum_creatinine"), grid.resolution = 10) %>% autoplot()
 ```
 
 
 ### LDA
-```{r}
+```{r, warning=FALSE}
 set.seed(1)
 
 lda_fit = train(x[rowtr, ], y[rowtr], 
@@ -348,10 +417,11 @@ set.seed(1)
 lda_fit2 = lda(death_event~., data = heart, 
                subset = rowtr)
 plot(lda_fit2)
+
 ```
 
 ### Naive Bayes
-```{r}
+```{r,warning=FALSE}
 nbgrid = expand.grid(usekernel = c(F, T),
                      fL = 1,
                      adjust = seq(.2, 3,by = .2))
@@ -365,17 +435,96 @@ nb_fit = train(x[rowtr, ], y[rowtr],
 
 plot(nb_fit)
 
+nb_fit$bestTune
 
+#confusion matrix
+nb_pred_prob = predict(nb_fit, newdata = x[-rowtr, ], type = "prob")[,2]
+nb_pred = rep("dead", length(nb_pred_prob))
+nb_pred[nb_pred_prob<0.5] = "alive"
+confusionMatrix(data = as.factor(nb_pred), 
+                reference = y[-rowtr], 
+                positive = "dead")
+
+#roc
+nb_roc = roc(y[-rowtr], nb_pred_prob)
+plot(nb_roc, legacy.axes = T, print.auc = T)
+plot(smooth(nb_roc), col = 4 , add = T)
 
 ```
 
 
 
 ### Model Comparison
-```{r}
+```{r,warning=FALSE}
 res = resamples(list(glm = logit_fit, glmnet = glmnet_fit, gam = gam_fit, mars = mars_fit, lda = lda_fit, naive_bayes = nb_fit))
 summary(res)
 bwplot(res, metric = "ROC")
 ```
 
+## Logistic Regression on different follow-up time
+```{r}
+heart_group = 
+  heart_tb %>% 
+  mutate(time = factor(case_when(time < 100 ~ 1, 
+                          TRUE ~ 2)))
+
+
+heart_group$creatinine_phosphokinase = as.numeric(heart_group$creatinine_phosphokinase)
+heart_group$ejection_fraction = as.numeric(heart_group$ejection_fraction)
+heart_group$serum_sodium = as.numeric(heart_group$serum_sodium)
+heart_group$death_event = factor(ifelse(heart_group$death_event == 1, "dead", "alive"))
+
+group1 = heart_group %>% filter(time == 1)
+group1 = as.data.frame(group1[,-12])
+x1 = model.matrix(death_event~., group1)[, -1]
+y1 = group1$death_event
+
+heart_group %>% filter(time == 1) %>% 
+  group_by(death_event) %>% 
+  summarise(count = n())
+
+
+
+group2 = heart_group %>% filter(time == 2)
+group2_alive = group2 %>% filter(death_event == "alive")
+set.seed(1)
+sp = sample(nrow(group2_alive), 25)
+group2_sp = rbind(group2_alive[sp, ], group2 %>% filter(death_event == "dead"))
+
+group2_sp = as.data.frame(group2_sp[,-12])
+x2 = model.matrix(death_event~., group2_sp)[, -1]
+y2 = group2_sp$death_event
+
+
+
+
+
+
+
+# follow-up time < 100 days - group 1
+set.seed(1)
+logit_fit_1 = train(x1, y1, 
+                  method = "glm", 
+                  metric = "ROC", 
+                  trControl = ctrl)
+
+summary(logit_fit_1)
+vip(logit_fit_1)
+
+# follow-up time ~ >100 days - group 2
+set.seed(1)
+logit_fit_2 = train(x2, y2, 
+                  method = "glm", 
+                  metric = "ROC", 
+                  trControl = ctrl)
+
+summary(logit_fit_2)
+vip(logit_fit_2)
+
+
+
+
+
+
+```
 
